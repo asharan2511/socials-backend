@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 const connectionSchema = new mongoose.Schema({
   refreshToken: {
     type: String,
-    default: "",
+    default: null,
     required: true,
   },
   userId: {
@@ -13,7 +13,11 @@ const connectionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: ["INACTIVE", "ACTIVE"],
+    enum: ["ACTIVE", "INACTIVE"],
+  },
+  createdAt: {
+    type: Date,
+    default: new Date(),
   },
 });
 

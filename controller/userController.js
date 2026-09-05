@@ -2,8 +2,8 @@ import { User } from "../models/userModel.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { Connection } from "../models/connectionModel.js";
+import { generateToken, hashToken } from "../utils/Refreshtoken.js";
 
-//POST - create User
 export const createUser = async (req, res, next) => {
   try {
     const { userName, firstName, lastName, email, password } = req.body;
@@ -28,13 +28,11 @@ export const createUser = async (req, res, next) => {
   }
 };
 
-//POST -  sign in
-
 export const loginUser = async (req, res, next) => {
   try {
     const { userName, email, password } = req.body;
 
-    if (!(userName && email)) {
+    if (!(userName || email)) {
       throw new Error("Atleast one them is required");
     }
 
@@ -51,20 +49,24 @@ export const loginUser = async (req, res, next) => {
       throw new Error("Wrong password. Check again");
     }
 
-    const refreshToken = crypto.randomBytes(16).toString("hex");
+    const rawRefreshToken = await generateToken();
+    const hashedToken = hashToken(rawRefreshToken);
+
+    console.log(rawRefreshToken);
+
     const accessToken = jwt.sign(
       {
         userId: findUser._id,
       },
       process.env.JWT_SECRET,
       {
-        expiresIn: "15m",
+        expiresIn: "7d",
       },
     );
 
-    await res.cookie("refreshToken", {
+    await res.cookie("refreshToken", rawRefreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: false,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     const connectionCreate = await Connection.findOneAndUpdate(
@@ -72,7 +74,11 @@ export const loginUser = async (req, res, next) => {
         userId: findUser._id,
       },
       {
-        $set: [{ refreshToken: refreshToken }, { status: "ACTIVE" }],
+        $set: {
+          refreshToken: hashedToken,
+          status: "ACTIVE",
+          createdAt: new Date(),
+        },
       },
       {
         upsert: true,
@@ -95,26 +101,67 @@ export const loginUser = async (req, res, next) => {
   }
 };
 
-export const logout = async (req, res) => {
+export const logout = async (req, res, next) => {
   try {
-    const id = req.userId;
-
+    const { refreshToken } = req.cookies;
+    const hashedToken = hashToken(refreshToken);
+    console.log(refreshToken);
     const update = await Connection.findOneAndUpdate(
       {
-        id,
+        refreshToken: hashedToken,
       },
       {
-        $set: { status: "INACTIVE" },
+        $set: { status: "INACTIVE", refreshToken: null },
       },
     );
+    console.log(update);
 
     if (!update) {
-      throw new Error("Failed ton logout try again!");
+      throw new Error("Invalid Token!");
     }
 
     res
       .status(201)
       .json({ success: true, message: "User logged out successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const tokenRefresh = async (req, res, next) => {
+  try {
+    const { refreshToken } = req.cookies;
+
+    const hashedToken = hashToken(refreshToken);
+    console.log(refreshToken);
+    console.log(hashedToken);
+
+    const findConnnection = await Connection.findOne({
+      refreshToken: hashedToken,
+      status: "ACTIVE",
+    });
+
+    if (!findConnnection) {
+      throw new Error("Invalid Refresh Token");
+    }
+
+    const accessToken = jwt.sign(
+      { userId: findConnnection.userId },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      },
+    );
+
+    const newRefreshToken = await generateToken();
+    const newHashedToken = hashToken(newRefreshToken);
+    findConnnection.refreshToken = newHashedToken;
+    findConnnection.save();
+    res.status(201).json({
+      success: true,
+      message: "Acess token granted",
+      token: accessToken,
+    });
   } catch (error) {
     next(error);
   }
