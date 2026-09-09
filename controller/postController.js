@@ -102,3 +102,8 @@ export const commentPost = async (req, res, next) => {
     console.error(error);
   }
 };
+
+export const commentLike = async (req, res, next) => {
+  const { postId } = req.params;
+  const { commentId } = req.body;
+};
